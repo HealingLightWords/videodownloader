@@ -22,7 +22,6 @@ if 'mime_type' not in st.session_state:
 
 st.set_page_config(page_title="雙模式影片下載器", page_icon="🎬")
 st.title("通用影片下載器 (雙引擎版)")
-# 更新：在說明文字中加入 Bilibili
 st.markdown("支援 YouTube、Facebook 與 **Bilibili (B站)**。提供伺服器深度轉檔與瀏覽器極速直連雙模式。")
 
 # ===== 2. 自動清理與檔名處理機制 =====
@@ -40,6 +39,7 @@ def cleanup_old_files(directory, max_age_seconds=1800):
                 except Exception:
                     pass
 
+# 每次互動時自動檢查並清理
 cleanup_old_files(DOWNLOAD_DIR, max_age_seconds=1800)
 
 def reset_download_state():
@@ -53,15 +53,19 @@ def clear_url():
 def clean_filename(title):
     if not title:
         return "video_download"
+    # 移除所有的 hashtag
     title = re.sub(r'#\S+', '', title)
+    # 移除觀看次數與互動統計
     title = re.sub(r'\d+(\.\d+)?[KkMm萬]?\s*(views|reactions|likes|comments|shares|次觀看|個讚|則留言|次分享|觀看次數|次播放)', '', title, flags=re.IGNORECASE)
+    # 移除常見的分隔符號
     title = title.replace('·', '').replace('|', '')
+    # 保留安全字元
     safe_title = "".join([c for c in title if c.isalnum() or c in [' ', '-', '_']])
+    # 清除多餘空白並限制長度
     safe_title = re.sub(r'\s+', ' ', safe_title).strip()
     return safe_title[:60] if safe_title else "video_download"
 
 # ===== 3. 步驟一：輸入與解析 =====
-# 更新：輸入框提示文字加入 Bilibili
 st.markdown("**請輸入 YouTube、Facebook 或 Bilibili 影片網址：**")
 
 col1, col2 = st.columns([6, 1])
@@ -97,7 +101,7 @@ if st.session_state.video_info:
     
     st.success(f"✅ 成功解析：{raw_title[:80]}...") 
     
-    with st.expander("👁️️ 影片封面縮圖", expanded=True):
+    with st.expander("👁️ 影片封面縮圖", expanded=True):
         if thumbnail:
             st.image(thumbnail, use_container_width=True, caption="影片封面預覽")
         else:
@@ -161,13 +165,20 @@ if st.session_state.video_info:
                 ydl_format = 'bestaudio/best'
                 postprocessors = [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3', 'preferredquality': '128'}]
 
+            # 包含防斷線與自動重試機制的完整下載設定
             ydl_opts_download = {
                 'format': ydl_format,
                 'outtmpl': os.path.join(DOWNLOAD_DIR, f"{task_id}.%(ext)s"),
                 'merge_output_format': 'mp4' if "影片" in mode else None,
                 'postprocessors': postprocessors if postprocessors else [],
                 'quiet': True,
-                'progress_hooks': [download_hook]
+                'progress_hooks': [download_hook],
+                'retries': 15,               # 最高自動重試 15 次
+                'fragment_retries': 15,      # 碎片下載失敗時最高重試 15 次
+                'continuedl': True,          # 啟用斷點續傳
+                'http_headers': {            # 偽裝成瀏覽器，降低伺服器中斷連線的機率
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+                }
             }
 
             with st.spinner("啟動下載引擎中..."):
@@ -178,6 +189,7 @@ if st.session_state.video_info:
                     st.session_state.is_processed = True
                     st.session_state.file_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.{ext}")
                     
+                    # 應用檔名過濾器
                     clean_title = clean_filename(raw_title)
                     st.session_state.file_name = f"{clean_title}.{ext}"
                     st.session_state.mime_type = mime
@@ -208,6 +220,7 @@ if st.session_state.video_info:
             ]
             
             if combined_formats:
+                # 排序取最高畫質
                 combined_formats = sorted(combined_formats, key=lambda x: x.get('height', 0), reverse=True)
                 best_format = combined_formats[0]
                 
@@ -215,6 +228,7 @@ if st.session_state.video_info:
                 resolution = best_format.get('height')
                 ext_direct = best_format.get('ext')
                 
+                # 應用檔名過濾器設定下載屬性
                 clean_title = clean_filename(raw_title)
                 
                 st.info(f"✅ 成功提取 {resolution}p {ext_direct} 格式網址！")
