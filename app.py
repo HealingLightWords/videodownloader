@@ -4,9 +4,9 @@ import os
 import uuid
 import time
 import glob
+import re  # 新增：用於精準過濾文字的正規表達式模組
 
 # ===== 1. 初始化 Session State =====
-# 新增 'url_input' 來強制控制輸入框的狀態。重整網頁時，這裡會重新初始化為空字串。
 if 'url_input' not in st.session_state:
     st.session_state.url_input = ""
 if 'video_info' not in st.session_state:
@@ -24,7 +24,7 @@ st.set_page_config(page_title="雙模式影片下載器", page_icon="🎬")
 st.title("通用影片下載器 (雙引擎版)")
 st.markdown("支援 YouTube/FB。提供伺服器深度轉檔 (最高 1080p) 與瀏覽器極速直連雙模式。")
 
-# ===== 2. 自動清理與狀態重置機制 =====
+# ===== 2. 自動清理與檔名處理機制 =====
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -44,29 +44,45 @@ cleanup_old_files(DOWNLOAD_DIR, max_age_seconds=1800)
 def reset_download_state():
     st.session_state.is_processed = False
 
-# 新增：一鍵清除所有輸入與解析狀態的回呼函式
 def clear_url():
     st.session_state.url_input = ""
     st.session_state.video_info = None
     st.session_state.is_processed = False
 
+# 新增：智慧型檔名清理函式
+def clean_filename(title):
+    if not title:
+        return "video_download"
+    
+    # 1. 移除所有的 hashtag (例如 #fyp, #搞笑)
+    title = re.sub(r'#\S+', '', title)
+    
+    # 2. 移除觀看次數與互動統計 (精準命中 29K views, 40 reactions, 1.2萬次觀看 等字眼)
+    title = re.sub(r'\d+(\.\d+)?[KkMm萬]?\s*(views|reactions|likes|comments|shares|次觀看|個讚|則留言|次分享|觀看次數|次播放)', '', title, flags=re.IGNORECASE)
+    
+    # 3. 移除常見的分隔符號 (如 FB 常用的 · 或 |)
+    title = title.replace('·', '').replace('|', '')
+    
+    # 4. 只保留中英文、數字、空白、底線與減號 (確保作業系統能正常存檔)
+    safe_title = "".join([c for c in title if c.isalnum() or c in [' ', '-', '_']])
+    
+    # 5. 清理多餘空白，並將長度限制在 60 個字元內，避免檔名過長報錯
+    safe_title = re.sub(r'\s+', ' ', safe_title).strip()
+    
+    return safe_title[:60] if safe_title else "video_download"
+
 # ===== 3. 步驟一：輸入與解析 =====
 st.markdown("**請輸入 YouTube 或 Facebook 影片網址：**")
 
-# 使用 columns 進行排版，讓輸入框與 X 按鈕並排
 col1, col2 = st.columns([6, 1])
-
 with col1:
-    # 綁定 key="url_input"，這樣就能受到 session_state 的控制
     url = st.text_input(
         "網址輸入框", 
         key="url_input", 
-        label_visibility="collapsed", # 隱藏預設標籤，使用上方的 markdown 標題
+        label_visibility="collapsed",
         on_change=reset_download_state
     )
-
 with col2:
-    # 點擊按鈕時，觸發 clear_url 函式
     st.button("✖️ 清除", on_click=clear_url, use_container_width=True)
 
 if st.button("🔍 1. 解析影片網址"):
@@ -86,10 +102,11 @@ if st.button("🔍 1. 解析影片網址"):
 # ===== 4. 步驟二：預覽與選擇下載模式 =====
 if st.session_state.video_info:
     info = st.session_state.video_info
-    title = info.get('title', '未命名影片')
+    raw_title = info.get('title', '未命名影片')
     thumbnail = info.get('thumbnail')
     
-    st.success(f"✅ 成功解析：{title}")
+    # 在畫面上依然顯示原始標題供確認
+    st.success(f"✅ 成功解析：{raw_title[:80]}...") 
     
     with st.expander("👁️ 影片封面縮圖", expanded=True):
         if thumbnail:
@@ -118,7 +135,6 @@ if st.session_state.video_info:
 
         if st.button("🚀 2. 開始伺服器下載與轉檔"):
             task_id = str(uuid.uuid4())[:8]
-            
             progress_bar = st.progress(0.0)
             status_text = st.empty()
 
@@ -130,7 +146,6 @@ if st.session_state.video_info:
                         if total > 0:
                             percent = min(downloaded / total, 1.0)
                             progress_bar.progress(percent)
-                            
                             speed = d.get('_speed_str', '未知')
                             eta = d.get('_eta_str', '未知')
                             status_text.info(f"⏳ 進度：{percent*100:.1f}% | ⚡ {speed} | ⏱ {eta}")
@@ -174,10 +189,9 @@ if st.session_state.video_info:
                     st.session_state.is_processed = True
                     st.session_state.file_path = os.path.join(DOWNLOAD_DIR, f"{task_id}.{ext}")
                     
-                    safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c==' ']).rstrip()
-                    if not safe_title: safe_title = "video_download"
-                        
-                    st.session_state.file_name = f"{safe_title}.{ext}"
+                    # 應用全新的檔名過濾器
+                    clean_title = clean_filename(raw_title)
+                    st.session_state.file_name = f"{clean_title}.{ext}"
                     st.session_state.mime_type = mime
                     
                     status_text.success("🎉 處理完全結束！請點擊下方按鈕下載。")
@@ -213,17 +227,20 @@ if st.session_state.video_info:
                 resolution = best_format.get('height')
                 ext_direct = best_format.get('ext')
                 
+                # 應用全新的檔名過濾器
+                clean_title = clean_filename(raw_title)
+                
                 st.info(f"✅ 成功提取 {resolution}p {ext_direct} 格式網址！")
                 
                 st.markdown(
                     f"""
-                    <a href="{direct_url}" target="_blank" download>
+                    <a href="{direct_url}" target="_blank" download="{clean_title}.{ext_direct}">
                         <button style="padding: 12px 24px; background-color: #00CC66; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
                             👉 點擊此處由瀏覽器直接下載 ({resolution}p)
                         </button>
                     </a>
                     <p style="margin-top: 10px; font-size: 14px; color: gray;">
-                        提示：若點擊後是在瀏覽器中直接播放，請在影片畫面上點擊右鍵選擇「另存影片」。部分平台因版權保護可能阻擋跨區直連，若失敗請改用分頁一的伺服器下載。
+                        提示：若點擊後是在瀏覽器中直接播放，請在影片畫面上點擊右鍵選擇「另存影片」。
                     </p>
                     """, 
                     unsafe_allow_html=True
