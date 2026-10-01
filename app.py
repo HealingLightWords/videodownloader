@@ -66,17 +66,16 @@ if st.session_state.video_info:
     
     st.success(f"✅ 成功解析：{title}")
     
-    with st.expander("👁️ 點擊展開預覽畫面", expanded=True):
-        try:
-            st.video(url)
-        except Exception:
-            if thumbnail:
-                st.image(thumbnail, use_container_width=True, caption="影片封面預覽")
+    # 修改：移除 st.video，改為純靜態縮圖顯示
+    with st.expander("👁️ 影片封面縮圖", expanded=True):
+        if thumbnail:
+            st.image(thumbnail, use_container_width=True, caption="影片封面預覽")
+        else:
+            st.info("此影片無法取得封面縮圖。")
     
     st.markdown("---")
     st.markdown("### 選擇您的下載方式")
     
-    # 建立兩個切換分頁
     tab1, tab2 = st.tabs(["☁️ 伺服器完整下載 (支援 1080p / MP3)", "⚡ 極速直連模式 (免等待轉檔)"])
 
     # ------------------ 分頁 1：伺服器下載模式 ------------------
@@ -110,7 +109,7 @@ if st.session_state.video_info:
                             
                             speed = d.get('_speed_str', '未知')
                             eta = d.get('_eta_str', '未知')
-                            status_text.info(f"⏳ 進度：{percent*100:.1f}% | ⚡ {speed} | ⏱️️ {eta}")
+                            status_text.info(f"⏳ 進度：{percent*100:.1f}% | ⚡ {speed} | ⏱ {eta}")
                     except Exception:
                         pass
                 elif d['status'] == 'finished':
@@ -177,7 +176,6 @@ if st.session_state.video_info:
         st.success("此模式不消耗伺服器資源！系統已為您尋找預先合併好影音的底層網址，最高畫質受限於 720p。")
         
         if st.button("⚡ 產生極速直連網址"):
-            # 直接從已經解析過的 session_state 提取資料，無須等待！
             combined_formats = [
                 f for f in info.get('formats', []) 
                 if f.get('vcodec') != 'none' and f.get('acodec') != 'none'
@@ -193,7 +191,6 @@ if st.session_state.video_info:
                 
                 st.info(f"✅ 成功提取 {resolution}p {ext_direct} 格式網址！")
                 
-                # 產生直接下載按鈕
                 st.markdown(
                     f"""
                     <a href="{direct_url}" target="_blank" download>
