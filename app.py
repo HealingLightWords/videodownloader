@@ -6,6 +6,9 @@ import time
 import glob
 
 # ===== 1. 初始化 Session State =====
+# 新增 'url_input' 來強制控制輸入框的狀態。重整網頁時，這裡會重新初始化為空字串。
+if 'url_input' not in st.session_state:
+    st.session_state.url_input = ""
 if 'video_info' not in st.session_state:
     st.session_state.video_info = None
 if 'is_processed' not in st.session_state:
@@ -21,7 +24,7 @@ st.set_page_config(page_title="雙模式影片下載器", page_icon="🎬")
 st.title("通用影片下載器 (雙引擎版)")
 st.markdown("支援 YouTube/FB。提供伺服器深度轉檔 (最高 1080p) 與瀏覽器極速直連雙模式。")
 
-# ===== 2. 自動清理機制 =====
+# ===== 2. 自動清理與狀態重置機制 =====
 DOWNLOAD_DIR = "downloads"
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
@@ -41,8 +44,30 @@ cleanup_old_files(DOWNLOAD_DIR, max_age_seconds=1800)
 def reset_download_state():
     st.session_state.is_processed = False
 
+# 新增：一鍵清除所有輸入與解析狀態的回呼函式
+def clear_url():
+    st.session_state.url_input = ""
+    st.session_state.video_info = None
+    st.session_state.is_processed = False
+
 # ===== 3. 步驟一：輸入與解析 =====
-url = st.text_input("請輸入 YouTube 或 Facebook 影片網址：", on_change=reset_download_state)
+st.markdown("**請輸入 YouTube 或 Facebook 影片網址：**")
+
+# 使用 columns 進行排版，讓輸入框與 X 按鈕並排
+col1, col2 = st.columns([6, 1])
+
+with col1:
+    # 綁定 key="url_input"，這樣就能受到 session_state 的控制
+    url = st.text_input(
+        "網址輸入框", 
+        key="url_input", 
+        label_visibility="collapsed", # 隱藏預設標籤，使用上方的 markdown 標題
+        on_change=reset_download_state
+    )
+
+with col2:
+    # 點擊按鈕時，觸發 clear_url 函式
+    st.button("✖️ 清除", on_click=clear_url, use_container_width=True)
 
 if st.button("🔍 1. 解析影片網址"):
     if url:
@@ -66,7 +91,6 @@ if st.session_state.video_info:
     
     st.success(f"✅ 成功解析：{title}")
     
-    # 修改：移除 st.video，改為純靜態縮圖顯示
     with st.expander("👁️ 影片封面縮圖", expanded=True):
         if thumbnail:
             st.image(thumbnail, use_container_width=True, caption="影片封面預覽")
